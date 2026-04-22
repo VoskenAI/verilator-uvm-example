@@ -1,121 +1,45 @@
 # UVM with Verilator — Feature Test Suite
 
-> Built and maintained by **[Vosken.AI](https://vosken.ai)** — Design Hardware at the Speed of Thought
-
-A practical, runnable UVM testbench that compiles and simulates entirely under open-source [Verilator](https://github.com/verilator/verilator). The repository demonstrates eleven commonly-used UVM patterns, each in its own self-checking test, with a shell-based test runner that verifies expected output automatically.
-
-Use this as a reference, a starting point for your own UVM+Verilator TB, or a knowledge base for AI-assisted verification development.
-
-Based on the original minimal example by [Antmicro](https://antmicro.com) (Copyright © 2025).
+**Developed and maintained by [Vosken.AI](https://vosken.ai)**
+*Design Hardware at the Speed of Thought*
 
 ---
 
-## What This Repository Covers
+A practical, runnable UVM testbench that compiles and simulates entirely under open-source [Verilator](https://github.com/verilator/verilator). The repository demonstrates eleven commonly-used UVM patterns — each in its own self-checking test — with a shell-based test runner that verifies expected output automatically.
 
-Each test targets a distinct UVM pattern that comes up in real verification work:
+Intended as a reference implementation, a starting point for UVM+Verilator testbenches, and a knowledge base for AI-assisted hardware verification workflows.
 
-| Test | UVM Feature |
-|------|-------------|
-| `sig_model_test` | Component hierarchy, sequences, analysis ports, scoreboard `check_phase` |
-| `test_factory_override` | `set_type_override_by_type`, derived items, factory transparency |
-| `test_config_db` | `uvm_config_db` with a custom `uvm_object` and scalar; parent→child scope pattern |
-| `test_directed` | `rand_mode(0)`, `randomize() with {}` inline constraints, multi-phase test structure |
-| `test_callback` | `uvm_callback`, `uvm_register_cb`, `uvm_do_callbacks`, call-count verification |
-| `test_virtual_seq` | Virtual sequencer, `uvm_declare_p_sequencer`, fork/join parallel sub-sequences |
-| `test_verbosity` | `set_report_verbosity_level_hier`, per-component override, phase-gated messages |
-| `test_response` | `item_done(rsp)`, `get_response(rsp)`, driver-to-sequence response channel |
-| `test_reg_model` | `uvm_reg_block` SW model: `predict()`, `get()`, `set()`, `randomize()`, `reset()` |
-| `test_broadcast_coverage` | Analysis port fan-out to multiple subscribers, `uvm_subscriber`, manual bin coverage |
-| `test_passive_agent` | `UVM_PASSIVE` via config_db, monitor-only agent, no driver/sequencer created |
-
-### What Is Not Covered
-
-These UVM features require capabilities not available under this setup:
-
-| Feature | Reason |
-|---------|--------|
-| `covergroup` / `coverpoint` | Requires Verilator `--coverage` flag (adds significant build overhead; not enabled) |
-| RAL frontdoor (`uvm_reg_adapter`) | Requires a real bus interface; this DUT has none |
-| RAL backdoor (`uvm_hdl_*`) | Requires DPI-C, disabled with `+define+UVM_NO_DPI` |
-| TLM 2.0 | Not included in the UVM 1800.2 base package used here |
-| Custom UVM phases | Not needed; standard phases cover all demonstrated patterns |
-| `uvm_event` / `uvm_barrier` | Not demonstrated; useful for multi-agent synchronization |
+> **Original work:** This repository extends the minimal UVM+Verilator example by [Antmicro](https://antmicro.com), Copyright © 2025 Antmicro, licensed under Apache 2.0. Significant additions and restructuring by Vosken.AI, 2025.
 
 ---
 
-## Repository Structure
+## Table of Contents
 
-```
-Makefile           — Verilator build rules; compile/run/test/waves/clean targets
-sim_main.cpp       — C++ simulation harness: eval loop, FST waveform, plusarg forwarding
-run_tests.sh       — Self-checking test runner (PASS/FAIL per test, supports !pattern)
-
-tb/
-  tb.sv            — Top-level module: clock gen, reset, VIF registration via config_db
-
-dv/
-  sig_pkg.sv       — Single package that `includes all .svh files in dependency order
-  if/
-    sig_if.sv      — DUT interface: DRIVER and MONITOR clocking block modports
-  env/             — Reusable UVM components
-    sig_item.svh         — Base sequence item (rand sig_length, 4-bit)
-    long_sig_item.svh    — Factory override target (constraint: sig_length >= 8)
-    sig_cfg.svh          — Config object (uvm_object subclass with field macros)
-    sig_driver_cbs.svh   — Callback base class (sig_driver_cb) + count_cb impl
-    sig_sequencer.svh    — Standard uvm_sequencer parameterized on sig_seq_item
-    sig_virt_sequencer.svh — Virtual sequencer (holds handle to real sequencer)
-    sig_sequence.svh     — Default random sequence (10 transactions)
-    sig_virt_sequence.svh  — Virtual sequence (fork/join two sub-sequences)
-    sig_driver.svh       — Drives sig high for sig_length clocks; callback hook
-    rsp_driver.svh       — Extends sig_driver; returns response via item_done(rsp)
-    sig_monitor.svh      — Counts pulse width; writes sig_seq_item to analysis port
-    sig_agent.svh        — Bundles sequencer + driver + monitor; respects is_active
-    sig_scoreboard.svh   — Matches sent/received items via TLM FIFOs
-    sig_coverage.svh     — uvm_subscriber with manual bin coverage (no covergroup)
-    sig_reg_block.svh    — uvm_reg_block: ctrl_reg (en, mode) + status_reg
-    sig_model_env.svh    — Base environment: two agents + scoreboard
-    broadcast_env.svh    — Extends sig_model_env; adds coverage subscriber
-    passive_env.svh      — Extends sig_model_env; sets sig_agnt_m to UVM_PASSIVE
-  tests/           — One test class per .svh file (included last in sig_pkg.sv)
-
-docs/
-  verilator_uvm.md — Generic UVM+Verilator patterns reference (portable to any project)
-```
-
-### UVM Component Hierarchy
-
-```
-uvm_test_top  (any test class)
-└── sig_model_env  (or broadcast_env / passive_env)
-    ├── sig_agnt_d   (UVM_ACTIVE — drives the DUT)
-    │   ├── sig_sequencer
-    │   ├── sig_driver   (or rsp_driver for test_response)
-    │   └── sig_monitor  ──ap──► scoreboard.item_collected_source
-    ├── sig_agnt_m   (UVM_ACTIVE or UVM_PASSIVE depending on test)
-    │   └── sig_monitor  ──ap──► scoreboard.item_collected_sink
-    └── sig_scoreboard   (+ sig_coverage in broadcast_env)
-```
-
-### Signal Flow
-
-`sig_driver` asserts `sig` high for `sig_length` clock cycles, then deasserts. Both monitors independently count the pulse width and write a `sig_seq_item` to the scoreboard. `check_phase` verifies every sent length matches every received length — a loopback self-check with no external reference model needed.
+1. [Prerequisites](#prerequisites)
+2. [Repository Structure](#repository-structure)
+3. [How to Build and Run](#how-to-build-and-run)
+4. [Test Coverage](#test-coverage)
+5. [How the Test Runner Works](#how-the-test-runner-works)
+6. [Verilator-Specific Notes](#verilator-specific-notes)
+7. [License](#license)
 
 ---
 
 ## Prerequisites
 
-| Tool | Version tested | Notes |
-|------|---------------|-------|
-| Verilator | 5.046 | Build from source |
-| Accellera UVM | 1800.2-2017-1.0 | Free download |
-| C++ compiler | g++ / clang++ | For `sim_main.cpp` |
-| GTKWave | any | Optional, for waveforms |
+| Tool | Version tested | Where to get it |
+|------|---------------|-----------------|
+| Verilator | 5.046 | [verilator.org](https://verilator.org/guide/latest/install.html) |
+| Accellera UVM | 1800.2-2017-1.0 | [accellera.org](https://www.accellera.org/downloads/standards/uvm) |
+| C++ compiler | g++ ≥ 9 / clang++ ≥ 12 | System package manager |
+| GTKWave | any | Optional — for waveform inspection |
 
-### Install Verilator
+### Install Verilator from source
 
 ```sh
-# Linux dependencies:
-sudo apt update && sudo apt install -y bison flex libfl-dev help2man z3 \
+# Debian/Ubuntu dependencies
+sudo apt update && sudo apt install -y \
+    bison flex libfl-dev help2man z3 \
     git autoconf make g++ perl python3
 
 git clone https://github.com/verilator/verilator
@@ -131,11 +55,96 @@ tar -xzf Accellera-1800.2-2017-1.0.tar.gz
 export UVM_HOME="$(pwd)/1800.2-2017-1.0/src"
 ```
 
-The Makefile defaults `UVM_HOME` to `~/opt/accellera/1800.2-2017-1.0/src`. Override with `make UVM_HOME=/path/to/src`.
+The Makefile defaults `UVM_HOME` to `~/opt/accellera/1800.2-2017-1.0/src`.
+Override at any time: `make UVM_HOME=/your/path`.
 
 ---
 
-## How to Run
+## Repository Structure
+
+```
+.
+├── Makefile              # Build targets: compile, run, test, waves, clean
+├── sim_main.cpp          # C++ simulation harness (eval loop + FST waveform)
+├── run_tests.sh          # Self-checking test runner
+│
+├── tb/
+│   └── tb.sv             # Top-level module: clock, reset, VIF → config_db
+│
+├── dv/
+│   ├── sig_pkg.sv        # Package: `includes all .svh files in dependency order
+│   │
+│   ├── if/
+│   │   └── sig_if.sv     # Interface with DRIVER and MONITOR clocking block modports
+│   │
+│   ├── env/              # Reusable UVM verification components
+│   │   ├── sig_item.svh           # Base sequence item (rand sig_length, 4-bit)
+│   │   ├── long_sig_item.svh      # Derived item: constraint sig_length >= 8
+│   │   ├── sig_cfg.svh            # Config object (uvm_object + field macros)
+│   │   ├── sig_driver_cbs.svh     # Callback base class + count_cb implementation
+│   │   ├── sig_sequencer.svh      # uvm_sequencer #(sig_seq_item)
+│   │   ├── sig_virt_sequencer.svh # Virtual sequencer (holds real sequencer handle)
+│   │   ├── sig_sequence.svh       # Default random sequence (10 transactions)
+│   │   ├── sig_virt_sequence.svh  # Virtual sequence (fork/join two sub-sequences)
+│   │   ├── sig_driver.svh         # Drives sig high for sig_length clocks
+│   │   ├── rsp_driver.svh         # Extends sig_driver; echoes response via item_done(rsp)
+│   │   ├── sig_monitor.svh        # Counts pulse width; writes to analysis port
+│   │   ├── sig_agent.svh          # Sequencer + driver + monitor; honours is_active
+│   │   ├── sig_scoreboard.svh     # Matches sent/received items via TLM FIFOs
+│   │   ├── sig_coverage.svh       # uvm_subscriber with manual bin counters
+│   │   ├── sig_reg_block.svh      # uvm_reg_block: ctrl_reg (en, mode) + status_reg
+│   │   ├── sig_model_env.svh      # Base environment: two agents + scoreboard
+│   │   ├── broadcast_env.svh      # Adds coverage subscriber to sig_model_env
+│   │   └── passive_env.svh        # Sets sig_agnt_m to UVM_PASSIVE
+│   │
+│   └── tests/            # One test class per file
+│       ├── sig_model_test.svh
+│       ├── test_factory_override.svh
+│       ├── test_config_db.svh
+│       ├── test_directed.svh
+│       ├── test_callback.svh
+│       ├── test_virtual_seq.svh
+│       ├── test_verbosity.svh
+│       ├── test_response.svh
+│       ├── test_reg_model.svh
+│       ├── test_broadcast_coverage.svh
+│       └── test_passive_agent.svh
+│
+└── docs/
+    └── verilator_uvm.md  # Generic UVM+Verilator patterns reference
+```
+
+### UVM Component Hierarchy
+
+```
+uvm_test_top  (any test class)
+└── sig_model_env  (or broadcast_env / passive_env)
+    ├── sig_agnt_d   (UVM_ACTIVE — stimulus)
+    │   ├── sig_sequencer
+    │   ├── sig_driver   (or rsp_driver)
+    │   └── sig_monitor  ──ap──► scoreboard.item_collected_source
+    ├── sig_agnt_m   (UVM_ACTIVE or UVM_PASSIVE)
+    │   └── sig_monitor  ──ap──► scoreboard.item_collected_sink
+    └── sig_scoreboard   (+ sig_coverage in broadcast_env)
+```
+
+### Signal Flow
+
+`sig_driver` asserts `sig` high for `sig_length` clock cycles, then deasserts.
+Both monitors independently count the pulse width and write a `sig_seq_item` to the scoreboard.
+`check_phase` verifies every sent length matches every received length — a loopback self-check with no external reference model.
+
+---
+
+## How to Build and Run
+
+### Compile
+
+```sh
+make compile
+```
+
+Elaborates with Verilator and compiles the C++ model into `obj_dir/Vtbench_top`.
 
 ### Run the default test
 
@@ -143,7 +152,7 @@ The Makefile defaults `UVM_HOME` to `~/opt/accellera/1800.2-2017-1.0/src`. Overr
 make
 ```
 
-Compiles and runs `sig_model_test` (the baseline loopback test). Produces `dump.fst`.
+Compiles (if needed) and runs `sig_model_test`. Produces `dump.fst`.
 
 ### Run a specific test
 
@@ -151,7 +160,7 @@ Compiles and runs `sig_model_test` (the baseline loopback test). Produces `dump.
 make TESTNAME=test_factory_override
 ```
 
-Or skip recompilation if the binary is already built:
+Or, after the binary is already built:
 
 ```sh
 ./obj_dir/Vtbench_top +UVM_TESTNAME=test_config_db
@@ -163,25 +172,33 @@ Or skip recompilation if the binary is already built:
 make test
 ```
 
-This compiles once, then runs every test via `run_tests.sh`, which checks each test's output against expected patterns and absence patterns. Example output:
+Expected output:
 
 ```
 PASS  sig_model_test
 PASS  test_factory_override
 PASS  test_config_db
-...
+PASS  test_directed
+PASS  test_callback
+PASS  test_virtual_seq
+PASS  test_verbosity
+PASS  test_response
+PASS  test_reg_model
+PASS  test_broadcast_coverage
+PASS  test_passive_agent
+
 Results: 11 passed, 0 failed
 ```
 
-### Inspect waveforms
+### View waveforms
 
 ```sh
 make waves
 ```
 
-Opens `dump.fst` in GTKWave. The waveform is produced by `sim_main.cpp` on every run.
+Opens `dump.fst` in GTKWave. The FST waveform is written on every simulation run.
 
-### Clean build artifacts
+### Clean
 
 ```sh
 make clean
@@ -191,26 +208,66 @@ Removes `obj_dir/` and `dump.fst`.
 
 ---
 
+## Test Coverage
+
+| Test | UVM Pattern | Key APIs |
+|------|-------------|----------|
+| `sig_model_test` | Baseline loopback | `uvm_sequence`, `uvm_driver`, `uvm_monitor`, `uvm_scoreboard`, analysis ports |
+| `test_factory_override` | Type substitution | `factory.set_type_override_by_type`, derived item class |
+| `test_config_db` | Configuration passing | `uvm_config_db#(T)::set/get`, `uvm_object` with field macros |
+| `test_directed` | Directed stimulus | `rand_mode(0)`, `randomize() with {}`, multi-sequence test |
+| `test_callback` | Extensible hooks | `uvm_callback`, `uvm_register_cb`, `uvm_do_callbacks` |
+| `test_virtual_seq` | Multi-agent coordination | `uvm_sequencer` (virtual), `uvm_declare_p_sequencer`, `fork/join` |
+| `test_verbosity` | Message filtering | `set_report_verbosity_level_hier`, per-component override |
+| `test_response` | Driver feedback | `item_done(rsp)`, `get_response(rsp)`, `set_id_info` |
+| `test_reg_model` | Register abstraction | `uvm_reg_block`, `predict`, `get`, `set`, `reset` (SW only) |
+| `test_broadcast_coverage` | Fan-out + coverage | Analysis port to multiple exports, `uvm_subscriber`, manual bins |
+| `test_passive_agent` | Monitor-only agent | `UVM_PASSIVE` via config_db, no driver or sequencer instantiated |
+
+### What Is Not Covered
+
+| Feature | Reason |
+|---------|--------|
+| `covergroup` / `coverpoint` | Requires Verilator `--coverage` flag (not enabled) |
+| RAL frontdoor (`uvm_reg_adapter`) | Requires a real bus interface; this DUT has none |
+| RAL backdoor (`uvm_hdl_*`) | Requires DPI-C, disabled by `+define+UVM_NO_DPI` |
+| TLM 2.0 | Not included in the UVM 1800.2 base package |
+| Custom UVM phases | Standard build/connect/run/check/report phases cover all patterns here |
+| `uvm_event` / `uvm_barrier` | Not demonstrated; useful for fine-grained multi-agent synchronization |
+
+---
+
 ## How the Test Runner Works
 
-`run_tests.sh` runs each test binary and checks stdout+stderr against a list of patterns:
+`run_tests.sh` executes each test binary and evaluates the output against a per-test list of assertions:
 
-- `"pattern"` — output **must** contain this (checked with `grep -E`)
-- `"!pattern"` — output must **not** contain this
+| Syntax | Meaning |
+|--------|---------|
+| `"pattern"` | Output **must** contain this string (evaluated as an extended regex) |
+| `"!pattern"` | Output must **not** contain this string |
 
-Every test also automatically requires `UVM_ERROR : 0` and `UVM_FATAL : 0`. Any test that fails a pattern check prints which pattern failed before reporting `FAIL`.
+All tests unconditionally require `UVM_ERROR : 0` and `UVM_FATAL : 0`.
+A test is marked `FAIL` if any assertion fails, and the specific failing pattern is printed.
 
 ---
 
 ## Verilator-Specific Notes
 
-- **`+define+UVM_NO_DPI`** — disables the DPI-C bridge. All pure-SV UVM operations work (factory, config_db, callbacks, register SW model). DPI-dependent features (`uvm_hdl_*` backdoor, some UVM internal utilities) do not.
-- **`--timing`** — required for `fork/join`, `@(posedge clk)` delays, and the UVM time-based scheduler. Without it, time-consuming operations hang.
-- **`sim_main.cpp`** — Verilator's auto-generated main (`--binary`) does not open a trace file. The custom harness is required to produce `dump.fst`.
-- **Incremental builds** — Verilator may not detect changes to `.svh` files. Run `make clean && make compile` after adding or removing files.
+| Flag / Feature | Notes |
+|----------------|-------|
+| `+define+UVM_NO_DPI` | Mandatory. Disables the DPI-C bridge; without it Verilator fails linking. All pure-SV UVM operations remain functional. |
+| `--timing` | Mandatory. Enables the time-aware scheduler for `fork/join`, `@(posedge clk)`, and `#n` delays. |
+| `sim_main.cpp` | Required for waveform output. Verilator's auto-generated `main()` (`--binary`) calls `traceEverOn()` but never opens the FST file. The custom 25-line harness adds `tfp->open("dump.fst")`. |
+| Incremental builds | Verilator tracks top-level sources but may miss changes inside `+incdir` directories. Run `make clean && make compile` after adding or removing `.svh` files. |
 
 ---
 
 ## License
 
-Copyright © 2025 Antmicro. Licensed under the Apache License 2.0 — see [LICENSE](LICENSE).
+The original Antmicro example is copyright © 2025 Antmicro and licensed under the
+[Apache License, Version 2.0](LICENSE).
+
+Additions and modifications by Vosken.AI are also provided under the Apache License, Version 2.0.
+
+You may use, copy, modify, and distribute this work under the terms of that license.
+See the [LICENSE](LICENSE) file for the full text.
