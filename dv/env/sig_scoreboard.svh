@@ -1,6 +1,8 @@
 class sig_scoreboard extends uvm_scoreboard;
   `uvm_component_utils(sig_scoreboard)
 
+  int items_checked = 0;
+
   uvm_tlm_analysis_fifo #(sig_seq_item) item_collected_source, item_collected_sink;
 
   function new(string name, uvm_component parent);
@@ -31,6 +33,7 @@ class sig_scoreboard extends uvm_scoreboard;
                   sent.sig_length,
                   received.sig_length),
                   UVM_MEDIUM);
+        items_checked++;
       end
   endfunction : check_phase
 

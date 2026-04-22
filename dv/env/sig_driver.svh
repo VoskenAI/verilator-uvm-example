@@ -2,6 +2,7 @@ class sig_driver extends uvm_driver #(sig_seq_item);
   virtual sig_if.DRIVER vif;
 
   `uvm_component_utils(sig_driver)
+  `uvm_register_cb(sig_driver, sig_driver_cb)
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
@@ -36,6 +37,7 @@ class sig_driver extends uvm_driver #(sig_seq_item);
     for (int i = 0; i < req.sig_length; i++) @(posedge vif.clk);
     vif.driver_cb.sig <= 0;
     @(posedge vif.clk);
+    `uvm_do_callbacks(sig_driver, sig_driver_cb, post_drive(req))
   endtask : drive
 
 endclass : sig_driver
