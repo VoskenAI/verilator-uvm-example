@@ -12,13 +12,13 @@
 ```makefile
 VERILATOR_FLAGS = \
     -Wno-fatal                    \
-    --cc                          \   # generate C++ model
-    --exe sim_main.cpp            \   # C++ harness
-    --build                       \   # compile after elaboration
+    --cc                          \   # generate C++ model (use with --exe and --build)
+    --exe sim_main.cpp            \   # custom C++ harness — required for FST trace output
+    --build                       \   # compile immediately after elaboration
     --timing                      \   # fork/join, @(posedge clk), #n delays
     -j $(JOBS)                    \
     --top-module tb_top           \
-    --trace-fst                   \   # FST waveform output
+    --trace-fst                   \   # add FST trace capability to generated model
     --trace-structs               \
     +incdir+$(UVM_HOME)           \
     +define+UVM_NO_DPI            \   # disable DPI-C bridge (required)
@@ -27,6 +27,8 @@ VERILATOR_FLAGS = \
     +incdir+$(DV_DIR)/env         \
     +incdir+$(DV_DIR)/tests
 ```
+
+**`--binary` vs `--cc --exe sim_main.cpp --build`**: `--binary` tells Verilator to generate its own `main()` and is fine for running tests. However, Verilator's generated main does **not** open an FST trace file — `--trace-fst` only adds trace *capability* to the model; the `main()` must also call `tfp->open("dump.fst")`. Use a custom `sim_main.cpp` (25 lines) whenever you need waveform output.
 
 **`+define+UVM_NO_DPI`** — mandatory. Without it Verilator fails because UVM tries to import DPI-C symbols that don't exist in a Verilator build.
 
@@ -54,37 +56,13 @@ dv/tests/                 — one test class per .svh file
 
 ### C++ simulation harness
 
-```cpp
-#include "verilated.h"
-#include "Vtb_top.h"
-#include "verilated_fst_c.h"
+A minimal `sim_main.cpp` is required to open the FST trace file. Key points:
 
-int main(int argc, char** argv) {
-    const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
-    contextp->traceEverOn(true);
-    contextp->commandArgs(argc, argv);   // forwards +UVM_TESTNAME= to the SV side
+- `contextp->commandArgs(argc, argv)` — forwards `+UVM_TESTNAME=` and other plusargs to the SV side
+- `topp->trace(tfp, 99)` + `tfp->open("dump.fst")` — enables and opens FST waveform capture
+- `nextTimeSlot()` — advances simulated time; required when `--timing` is set
 
-    const std::unique_ptr<Vtb_top> topp{new Vtb_top{contextp.get(), ""}};
-
-    VerilatedFstC* tfp = new VerilatedFstC;
-    topp->trace(tfp, 99);
-    tfp->open("dump.fst");
-
-    while (!contextp->gotFinish()) {
-        topp->eval();
-        tfp->dump(contextp->time());
-        if (!topp->eventsPending()) break;
-        contextp->time(topp->nextTimeSlot());
-    }
-
-    topp->final();
-    tfp->close();
-    delete tfp;
-    return 0;
-}
-```
-
-`contextp->commandArgs(argc, argv)` is what makes `+UVM_TESTNAME=my_test` reach `run_test()`. The `nextTimeSlot()` call advances simulated time — required for `--timing` mode. Without it the sim stalls after the first time step.
+See `sim_main.cpp` in this repo for a complete working example (~25 lines).
 
 ---
 
