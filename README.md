@@ -29,10 +29,11 @@ Intended as a reference implementation, a starting point for UVM+Verilator testb
 
 | Tool | Version tested | Where to get it |
 |------|---------------|-----------------|
-| Verilator | 5.046 | [verilator.org](https://verilator.org/guide/latest/install.html) |
-| Accellera UVM | 1800.2-2017-1.0 | [accellera.org](https://www.accellera.org/downloads/standards/uvm) |
-| C++ compiler | g++ ≥ 9 / clang++ ≥ 12 | System package manager |
+| Verilator | 5.046 (5.049 also OK) | [verilator.org](https://verilator.org/guide/latest/install.html) |
+| Accellera UVM | 1800.2-2017-1.0 (also runs against 1800.2-2020.3.1) | [accellera.org](https://www.accellera.org/downloads/standards/uvm) |
+| C++ compiler | g++ ≥ 10 / clang++ ≥ 14 (Verilator 5.x `--timing` needs C++20 coroutines) | System package manager |
 | GTKWave | any | Optional — for waveform inspection |
+| AMD Vivado | 2024.1+ | Optional — only if running the **xsim** flow |
 
 ### Install Verilator from source
 
@@ -205,6 +206,20 @@ make clean
 ```
 
 Removes `obj_dir/` and `dump.fst`.
+
+### Run with xsim (AMD Vivado Simulator)
+
+xsim ships a precompiled UVM 1.2 library, so no separate UVM download or
+`UVM_HOME` is needed for the xsim flow.
+
+```sh
+source /opt/Xilinx/Vivado/<version>/settings64.sh   # makes xvlog/xelab/xsim available
+make xsim          # compile + run default test
+make xsim_test     # compile + run all 11 tests via run_tests_xsim.sh
+make xsim_clean    # remove xsim.dir, .Xil, *.jou, *.log, *.pb, *.wdb
+```
+
+Tested with Vivado 2024.1. All 11 tests pass under both Verilator and xsim.
 
 ---
 

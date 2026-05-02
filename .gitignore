@@ -4,3 +4,13 @@ Accellera-1800.2-2017-1.0.tar.gz*
 obj_dir/
 dump.fst
 .claude/
+
+# xsim (AMD Vivado Simulator) artifacts
+xsim.dir/
+.Xil/
+*.jou
+*.log
+*.pb
+*.wdb
+webtalk*.backup.jou
+webtalk*.backup.log

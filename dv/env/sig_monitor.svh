@@ -1,5 +1,5 @@
 class sig_monitor extends uvm_monitor;
-  virtual sig_if.MONITOR vif;
+  virtual sig_if vif;
   uvm_analysis_port #(sig_seq_item) item_collected_port;
   sig_seq_item trans_collected;
 
@@ -13,7 +13,7 @@ class sig_monitor extends uvm_monitor;
 
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    if (!uvm_config_db#(virtual sig_if.MONITOR)::get(this, "", "vif", vif))
+    if (!uvm_config_db#(virtual sig_if)::get(this, "", "vif", vif))
       `uvm_fatal("NO_VIF", {"virtual interface must be set for: ", get_full_name(), ".vif"});
   endfunction : build_phase
 

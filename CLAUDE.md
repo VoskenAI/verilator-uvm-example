@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
-- **Verilator** on `PATH` (tested with 5.046, built from source)
+- **Verilator** on `PATH` (tested with 5.046 and 5.049, built from source)
 - **UVM sources** with `UVM_HOME` pointing to the `src/` directory (default: `~/opt/accellera/1800.2-2017-1.0/src`)
+- **AMD Vivado** (2024.1+) — optional, required only for the xsim flow. Source `settings64.sh` to put `xvlog`/`xelab`/`xsim` on `PATH`. xsim ships its own UVM 1.2 library, so no UVM download is needed for that path.
 
 ## Commands
 
 ```sh
+# Verilator
 make                                     # compile + run default test (sig_model_test)
 make compile                             # elaborate only → obj_dir/Vtbench_top
 make run                                 # run simulation → dump.fst waveform
@@ -17,6 +19,13 @@ make TESTNAME=test_factory_override      # compile + run a specific test
 make test                                # compile then run all 11 tests via run_tests.sh
 make waves                               # open dump.fst in GTKWave
 make clean                               # remove obj_dir/ and dump.fst
+
+# xsim (Vivado must be sourced)
+make xsim                                # xvlog + xelab + run default test
+make xsim_compile                        # elaborate only → xsim.dir/tbench_top_sim
+make xsim_run TESTNAME=test_directed     # run a specific test against the snapshot
+make xsim_test                           # run all 11 tests via run_tests_xsim.sh
+make xsim_clean                          # remove xsim.dir, .Xil, *.jou, *.log, *.pb
 ```
 
 Run a single test without recompiling:
@@ -74,6 +83,14 @@ uvm_test_top  (any test class)
 - **`--timing`** — required for `fork/join`, `@(posedge clk)`, and UVM time-based scheduler.
 - **`covergroup`** — requires `--coverage` flag (not enabled). Use manual bin counters in a `uvm_subscriber` instead.
 - **Incremental builds** — after editing `.svh` files, Verilator may not detect the change. Run `make clean && make compile` to be safe.
+
+## Cross-simulator (Verilator + xsim) constraints
+
+The interface, package, and config_db plumbing have to satisfy both simulators. Two patterns to watch:
+
+- **`virtual sig_if` (no modport).** xsim cannot parameterize `uvm_config_db` on a modport-qualified virtual interface (`virtual sig_if.DRIVER`) — elaboration fails with `'sig_if_default' is not an interface`. The `driver_cb` / `monitor_cb` clocking blocks already enforce direction, so dropping the modport from the virtual interface type is portable and behavior-preserving. Used in `dv/env/sig_driver.svh`, `dv/env/sig_monitor.svh`, and `tb/tb.sv`.
+- **`` `include "uvm_macros.svh" `` in `dv/sig_pkg.sv`.** xsim's precompiled UVM 1.2 library (`-L uvm`) makes types visible via `import uvm_pkg::*` but not the `` `uvm_*_utils `` macros — those have to be `` `included `` in the file that uses them. The `uvm_macros.svh` file is `` `ifndef ``-guarded, so re-inclusion is harmless under Verilator (whose command line already has `+incdir+$UVM_HOME` and compiles `uvm_pkg.sv`).
+- **xsim quirk: `real x = some_method();` in a `function void` body silently skips the call.** Found while wiring `test_broadcast_coverage`. xsim returns the default-init value (0.0) instead of invoking the method when a real-returning method is used as the initializer of a local variable in another class's check_phase. Workaround: declare and assign on separate lines, or read a precomputed field. `sig_coverage` publishes its result as `coverage_pct` (assigned eagerly inside `get_coverage()`), and `test_broadcast_coverage.check_phase` reads that field directly. Verilator handles either form.
 
 ## config_db Scope Pattern
 

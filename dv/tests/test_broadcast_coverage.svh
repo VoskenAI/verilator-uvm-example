@@ -54,7 +54,11 @@ class test_broadcast_coverage extends uvm_test;
   endtask
 
   virtual function void check_phase(uvm_phase phase);
-    real cov = env.coverage.get_coverage();
+    real cov;
+    // Read the field rather than invoking get_coverage() through env.coverage.
+    // sig_coverage.check_phase publishes coverage_pct, and runs first
+    // (bottom-up phase ordering).
+    cov = env.coverage.coverage_pct;
     if (cov < 100.0)
       `uvm_error(get_type_name(), $sformatf(
           "Expected 100%% coverage, got %.0f%%", cov))

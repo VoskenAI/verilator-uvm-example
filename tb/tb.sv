@@ -18,8 +18,8 @@ module tbench_top;
   );
 
   initial begin
-    uvm_config_db#(virtual sig_if.DRIVER)::set(uvm_root::get(), "*", "vif", intf.DRIVER);
-    uvm_config_db#(virtual sig_if.MONITOR)::set(uvm_root::get(), "*", "vif", intf.MONITOR);
+    uvm_config_db#(virtual sig_if)::set(uvm_root::get(), "*", "vif", intf);
+    uvm_config_db#(virtual sig_if)::set(uvm_root::get(), "*", "vif", intf);
   end
 
   initial begin

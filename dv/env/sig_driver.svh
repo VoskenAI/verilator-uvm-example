@@ -1,5 +1,5 @@
 class sig_driver extends uvm_driver #(sig_seq_item);
-  virtual sig_if.DRIVER vif;
+  virtual sig_if vif;
 
   `uvm_component_utils(sig_driver)
   `uvm_register_cb(sig_driver, sig_driver_cb)
@@ -10,7 +10,7 @@ class sig_driver extends uvm_driver #(sig_seq_item);
 
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
-    if (!uvm_config_db#(virtual sig_if.DRIVER)::get(this, "", "vif", vif))
+    if (!uvm_config_db#(virtual sig_if)::get(this, "", "vif", vif))
       `uvm_fatal("NO_VIF", {"virtual interface must be set for: ", get_full_name(), ".vif"});
   endfunction : build_phase
 

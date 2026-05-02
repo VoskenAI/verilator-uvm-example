@@ -1,4 +1,5 @@
 package sig_pkg;
+  `include "uvm_macros.svh"
   import uvm_pkg::*;
   `include "sig_item.svh"
   `include "long_sig_item.svh"

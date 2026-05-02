@@ -27,13 +27,24 @@ class sig_coverage extends uvm_subscriber #(sig_seq_item);
     else if (t.sig_length inside {[11:15]}) bin_long++;
   endfunction
 
+  // Coverage % is also published as a field so external callers can read it
+  // without going through a method (works around an xsim issue where a real
+  // returning method invoked via member access in another class's check_phase
+  // returns 0 without the method ever executing).
+  real coverage_pct = 0.0;
+
   function real get_coverage();
-    int unsigned hit = (bin_short > 0) + (bin_medium > 0) + (bin_long > 0);
-    return 100.0 * hit / 3;
+    int unsigned hit = 0;
+    if (bin_short  > 0) hit++;
+    if (bin_medium > 0) hit++;
+    if (bin_long   > 0) hit++;
+    coverage_pct = 100.0 * hit / 3;
+    return coverage_pct;
   endfunction
 
   function void check_phase(uvm_phase phase);
-    real cov = get_coverage();
+    real cov;
+    cov = get_coverage();
     `uvm_info(get_type_name(), $sformatf(
         "Functional coverage: %.0f%% (short=%0d, medium=%0d, long=%0d)",
         cov, bin_short, bin_medium, bin_long), UVM_MEDIUM)
